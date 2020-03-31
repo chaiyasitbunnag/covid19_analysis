@@ -1,5 +1,6 @@
 library(ggplot2)
 library(dplyr)
+library(tidyr)
 library(bigrquery)
 library(httr)
 library(ggmap)
@@ -77,11 +78,25 @@ google_map + geom_point(aes(x=138.2529,y=36.20482))
 ## check date (data up to when?)
 distinct(summary_data,date) %>% arrange(date)
 
-## test geo api
+## test geo api in case the data doen't provide lat long
 url <- paste0("https://maps.googleapis.com/maps/api/geocode/json?address=Japan&key=",api_key)
 res <- GET(url,encode = "json")
 geo_info <- rjson::fromJSON(file = url)
 geo_info$results[[1]]$geometry$location$lng
 
 ## loop countries to get coordinates
-country_list <- distinct(summary_data, country_region) %>% filter(country_region != "Others")
+
+summary2 <- 
+summary_data %>%
+   mutate(country_region = trimws(country_region)) %>% 
+   group_by(country_region) %>%
+   fill(latitude, .direction = "up") %>% 
+   fill(longitude, .direction = "up") %>% 
+   fill(latitude, .direction = "down") %>% 
+   fill(longitude, .direction = "down")
+
+## days recordred not equal
+summary2 %>% group_by(country_region,date) %>% tally() %>% arrange(-n)
+summary2 %>% filter(country_region=="Thailand"&date==as.Date("2020-03-29"))
+summary2 %>% filter(country_region=="US"&date==as.Date("2020-03-29"))
+
