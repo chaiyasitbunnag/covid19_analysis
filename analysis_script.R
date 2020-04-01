@@ -9,7 +9,7 @@ library(httr)
 library(ggmap)
 library(lubridate)
 library(RColorBrewer)
-library(easypackages)
+library(ggrepel)
 
 setwd("C:/git_r_project/covid19_analysis")
 ##### importing data from bigquery #####
@@ -48,29 +48,6 @@ max(summary_data$date)
 
 ##### end importing data #####
 
-##### connecting google map api #####
-## enable geo api in gcp first
-api_key <- "AIzaSyCgAe7o8wIde89PUJpgB-KcfMrBhNcngh4"
-ggmap::register_google(key = "AIzaSyCgAe7o8wIde89PUJpgB-KcfMrBhNcngh4")
-
-## test plotting map
-google_map = ggmap(get_googlemap(center = c(lon=5,lat=0),zoom = 1, scale = 2,
-                         maptype ='roadmap',
-                         color = 'color'))
-
-google_map + geom_point(aes(x=138.2529,y=36.20482))
-
-## check date (data up to when?)
-distinct(summary_data,date) %>% arrange(date)
-
-## test geo api in case the data doen't provide lat long
-url <- paste0("https://maps.googleapis.com/maps/api/geocode/json?address=Japan&key=",api_key)
-res <- GET(url,encode = "json")
-geo_info <- rjson::fromJSON(file = url)
-geo_info$results[[1]]$geometry$location$lat
-geo_info$results[[1]]$geometry$location$lng
-## loop if too many countries' lat lon missing
-
 summary2 <- 
 summary_data %>%
    mutate(country_region = trimws(country_region)) %>% 
@@ -87,6 +64,9 @@ summary2$country_region[str_detect(summary2$country_region,"Gambia")] <- "Gambia
 summary2$country_region[str_detect(summary2$country_region,"Czech")] <- "Czech"
 summary2$country_region[str_detect(summary2$country_region,"Korea")] <- "South Korea"
 summary2$country_region[str_detect(summary2$country_region,"Congo")] <- "Congo"
+summary2$country_region[summary2$country_region=="UK"] <- "United Kingdom"
+summary2$country_region[summary2$country_region=="Taiwan*"] <- "Taiwan"
+summary2<-summary2 %>% filter(country_region != "Others")
 #summary2$country_region[str_detect(summary2$country_region,"Ireland")] <- "Ireland"
 
 summary2 <- 
@@ -94,32 +74,16 @@ summary2 %>%
    group_by(country_region,date) %>% 
    summarise(confirmed = max(confirmed))
 
-summary2 %>% 
-   group_by(country_region) %>% 
-   summarise(total_cases=sum(confirmed)) %>% 
-   View()
 
 
-summary2 %>% filter(str_detect(country_region,"Repub")) %>% View()
-
-## days recordred not equal
-summary2 %>% group_by(country_region,date) %>% tally() %>% arrange(-n)
-summary2 %>% distinct(country_region,date) %>% group_by(country_region) %>% tally() %>% arrange(-n)
-
-summary2 %>% filter(country_region=="Thailand"&date==as.Date("2020-03-29"))
-summary2 %>% filter(country_region=="US"&date==as.Date("2020-03-29"))
-us <- summary2 %>% filter(country_region=="US")
-us_china <- summary2 %>% filter(country_region=="US"|country_region=="China")
-us_china$country_region[us_china$country_region=="Mainland China"] <- "China"
-## test us
+##### plot china and us #####
 format(Sys.Date(), format = "%Y-%b-%d")
 Sys.setlocale("LC_TIME", "English")
 
-##### plot china and us #####
+us_china <- summary2 %>% filter(country_region == "US"|country_region == "China")
+
 lags_data <- 
-   us_china %>% 
-   #group_by(country_region,date) %>% 
-   #summarise(total_confirmed=sum(confirmed)) %>%
+   us_china %>%
    mutate(new = confirmed - lag(confirmed,n=1,default = first(confirmed))) %>% 
    arrange(country_region,date) %>% 
    mutate(new_lag5 = new - lag(new,n=5,default = first(new)),
@@ -146,6 +110,28 @@ plotlag <- function(df,lag_col,lag) {
             plot.margin = margin(0.5,1,1,1,"cm"),
             line = element_line(linetype = "dashed"))+
       labs(subtitle = paste0("new cases found compared to new cases ",lag,"-day prior"))
+
+}
+
+plotlag <- function(df,lag_col,lag) {
+   
+   set.seed(999)
+   ggplot(df,aes(x=date,y=lag_col))+
+      geom_jitter(aes(col = country_region),alpha=0.3)+
+      geom_smooth(aes(group = country_region,col=country_region),se=F)+
+      scale_color_manual(values = sample(colors(distinct = T),2))+
+      theme_minimal()+
+      theme(legend.position = "top",
+            panel.grid.minor.x = element_blank(),
+            panel.grid.major.y = element_blank(),
+            panel.grid.minor.y = element_blank(),
+            legend.title = element_blank(),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            plot.margin = margin(0.5,1,1,1,"cm"),
+            line = element_line(linetype = "dashed"))+
+      labs(subtitle = paste0("new cases found compared to new cases ",lag,"-day prior"))
+   
 }
 
 
@@ -153,12 +139,9 @@ output_lag5<-plotlag(df=lags_data,lag_col=lags_data$new_lag5,lag=5)
 output_lag7<-plotlag(df=lags_data,lag_col=lags_data$new_lag7,lag=7)
 output_lag14<-plotlag(df=lags_data,lag_col=lags_data$new_lag14,lag=14)
 
-
 print(output_lag5)
 print(output_lag7)
 print(output_lag14)
-
-
 
 set.seed(999)
 g<-us_china %>% 
@@ -186,7 +169,10 @@ print(new_log_b5)
 
 ## find growth metric
 speed <- 
-g %>% mutate(speed_rate = (total_confirmed / lag(total_confirmed,n=15,default = first(total_confirmed))) %>% round(2))
+summary2 %>%
+   filter(confirmed>100) %>% 
+   mutate(speed_rate = (confirmed / lag(confirmed,n=14,default = first(confirmed))) %>% round(2))
+
 speed %>% group_by(country_region) %>% summarise(mean_speed = mean(speed_rate,na.rm = T))
 
 set.seed(999)
@@ -206,28 +192,48 @@ ggplot(speed,aes(x=date,y=speed_rate))+
 ## speed mean all ##
 speed_rank14 <- 
 summary2 %>%
-   filter(confirmed!=0&country_region %in% n30$country_region) %>%
-   mutate(new = confirmed - lag(confirmed,n=1,default = first(confirmed))) %>%
-   filter(new>0) %>% 
-   arrange(country_region,date) %>%
-   filter(country_region %in% n14$country_region) %>% 
-   mutate(speed_rate = (new / lag(new,n=14)) %>% round(2)) %>%
-   group_by(country_region) %>% summarise(mean_speed = mean(speed_rate,na.rm = T) %>% round(1)) %>%
-   mutate(rank_handle = as.numeric(factor(rank(mean_speed)))) %>% 
+   filter(confirmed>0&country_region %in% n14$country_region) %>%
+   mutate(speed_rate = (confirmed / lag(confirmed,n=14)) %>% round(2)) %>%
+   group_by(country_region) %>% 
+   summarise(mean_speed = sum(speed_rate,na.rm = T)) %>%
+   mutate(mean_order = as.numeric(factor(rank(mean_speed))))%>% 
    ungroup() %>%
-   arrange(-rank_handle)
-   
-n30 <-    
-   summary2 %>%
-      filter(confirmed!=0) %>%
-      group_by(country_region) %>% 
-      summarise(n = n()) %>% 
-      filter(n >=30)
+   arrange(-mean_order)
+
+speed_rank14$country_region[speed_rank14$country_region=="Taiwan*"] <- "Taiwan"
+
+set.seed(999)
+speed_rank14 %>%
+   mutate(country_region = reorder(country_region,-mean_order)) %>% 
+   ggplot(.,aes(x=country_region,y=mean_order,label = paste0(country_region,": ",round(mean_speed/100,2)),col = country_region)) +
+   geom_point()+
+   geom_text_repel(size=3,hjust=-0.2)+
+   guides(colour=guide_colorbar(label=F))+
+   scale_color_manual(values = sample(colors(distinct = T),length(unique(speed_rank14$country_region))))+
+   scale_y_continuous(breaks = seq(1,max(speed_rank14$mean_order),1))+
+   coord_flip()+
+   theme_minimal()+
+   theme(axis.text.x = element_blank(),
+         axis.title = element_blank(),
+         axis.text.y = element_blank(),
+         panel.grid.major.y = element_blank(),
+         panel.grid.minor.x = element_blank(),
+         line = element_blank())+
+   labs(subtitle = "14-day average speed (total cases) from low (left) to high (right)")
 
 n14 <- 
-summary2 %>%
-   filter(confirmed!=0&country_region %in% n30$country_region) %>%
-   mutate(new = confirmed - lag(confirmed,n=1,default = first(confirmed))) %>%
-   filter(new>0) %>% 
-   count(country_region) %>% 
-   filter(n>=15) #n+1
+   summary2 %>%
+   filter(confirmed>=50) %>%
+   #mutate(new = confirmed - lag(confirmed,n=1,default = first(confirmed))) %>%
+   #filter(new>0) %>% 
+   #arrange(country_region,date) %>%
+   mutate(speed_rate = (confirmed / lag(confirmed,n=14)) %>% round(2)) %>% 
+   count(country_region) %>%
+   filter(n>=15)
+
+n14 %>% 
+
+suspect_report = c("China","Russia","Iran","Indonesia","Saudi Arabia","Eypt")
+# source https://www.bloomberg.com/news/articles/2020-04-01/china-concealed-extent-of-virus-outbreak-u-s-intelligence-says
+# https://www.bloomberg.com/news/articles/2020-03-24/hyatt-to-furlough-u-s-corporate-employees-with-hotels-shuttered
+
