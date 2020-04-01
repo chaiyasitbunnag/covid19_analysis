@@ -3,11 +3,13 @@ library(jsonlite)
 library(plotly)
 library(dplyr)
 library(tidyr)
+library(stringr)
 library(bigrquery)
 library(httr)
 library(ggmap)
 library(lubridate)
 library(RColorBrewer)
+library(easypackages)
 
 setwd("C:/git_r_project/covid19_analysis")
 ##### importing data from bigquery #####
@@ -41,6 +43,8 @@ summary_data = query_exec(bq.get_summary_data,
                     project = project_id,
                     use_legacy_sql = FALSE,
                     max_pages = Inf)
+
+max(summary_data$date)
 
 ##### end importing data #####
 
@@ -76,48 +80,117 @@ summary_data %>%
    fill(latitude, .direction = "down") %>% 
    fill(longitude, .direction = "down")
 
+summary2$country_region[summary2$country_region=="Mainland China"] <- "China"
+summary2$country_region[str_detect(summary2$country_region,"Bahamas")] <- "Bahamas"
+summary2$country_region[str_detect(summary2$country_region,"Hong Kong")] <- "Hong Kong"
+summary2$country_region[str_detect(summary2$country_region,"Gambia")] <- "Gambia"
+summary2$country_region[str_detect(summary2$country_region,"Czech")] <- "Czech"
+summary2$country_region[str_detect(summary2$country_region,"Korea")] <- "South Korea"
+summary2$country_region[str_detect(summary2$country_region,"Congo")] <- "Congo"
+#summary2$country_region[str_detect(summary2$country_region,"Ireland")] <- "Ireland"
+
+summary2 <- 
+summary2 %>% 
+   group_by(country_region,date) %>% 
+   summarise(confirmed = max(confirmed))
+
+summary2 %>% 
+   group_by(country_region) %>% 
+   summarise(total_cases=sum(confirmed)) %>% 
+   View()
+
+
+summary2 %>% filter(str_detect(country_region,"Repub")) %>% View()
+
 ## days recordred not equal
 summary2 %>% group_by(country_region,date) %>% tally() %>% arrange(-n)
+summary2 %>% distinct(country_region,date) %>% group_by(country_region) %>% tally() %>% arrange(-n)
+
 summary2 %>% filter(country_region=="Thailand"&date==as.Date("2020-03-29"))
 summary2 %>% filter(country_region=="US"&date==as.Date("2020-03-29"))
 us <- summary2 %>% filter(country_region=="US")
-us_china <- summary2 %>% filter(country_region=="US"|country_region=="China"|country_region=="Mainland China")
+us_china <- summary2 %>% filter(country_region=="US"|country_region=="China")
 us_china$country_region[us_china$country_region=="Mainland China"] <- "China"
 ## test us
 format(Sys.Date(), format = "%Y-%b-%d")
 Sys.setlocale("LC_TIME", "English")
 
-g <- 
+##### plot china and us #####
+lags_data <- 
    us_china %>% 
-   group_by(country_region,date) %>% 
-   summarise(total_confirmed=sum(confirmed)) %>%
-   mutate(new = total_confirmed - lag(total_confirmed,n=1,default = first(total_confirmed))) %>% 
+   #group_by(country_region,date) %>% 
+   #summarise(total_confirmed=sum(confirmed)) %>%
+   mutate(new = confirmed - lag(confirmed,n=1,default = first(confirmed))) %>% 
    arrange(country_region,date) %>% 
-   mutate(new_lag5 = new - lag(new,n=5,default = first(total_confirmed))) %>% 
+   mutate(new_lag5 = new - lag(new,n=5,default = first(new)),
+          new_lag7 = new - lag(new,n=7,default = first(new)),
+          new_lag14 = new - lag(new,n=14,default = first(new))) %>% 
+   
    ungroup()
 
-   ggplot(g,aes(x=date,y=log2(new_lag5)))+
-   geom_point(aes(col = country_region))+
-   geom_smooth(aes(group = country_region,col=country_region))+
-   theme(legend.position = "top")
+plotlag <- function(df,lag_col,lag) {
    
-   ggplot(g,aes(x=date,y=new_lag5))+
-   geom_point(aes(col = country_region))+
-   geom_smooth(aes(group = country_region,col=country_region,se=F))+
-   theme(legend.position = "top")
-   
-lag5_nonlog<- 
-   ggplot(g,aes(x=date,y=new_lag5))+
-   geom_point(aes(col = country_region))+
-   geom_smooth(aes(group = country_region,col=country_region),se=F)+
+   set.seed(999)
+   ggplot(df,aes(x=date,y=lag_col))+
+      geom_jitter(aes(col = country_region),alpha=0.3)+
+      geom_smooth(aes(group = country_region,col=country_region),se=F)+
+      scale_color_manual(values = sample(colors(distinct = T),2))+
+      theme_minimal()+
+      theme(legend.position = "top",
+            panel.grid.minor.x = element_blank(),
+            panel.grid.major.y = element_blank(),
+            panel.grid.minor.y = element_blank(),
+            legend.title = element_blank(),
+            axis.title.x = element_blank(),
+            axis.title.y = element_blank(),
+            plot.margin = margin(0.5,1,1,1,"cm"),
+            line = element_line(linetype = "dashed"))+
+      labs(subtitle = paste0("new cases found compared to new cases ",lag,"-day prior"))
+}
+
+
+output_lag5<-plotlag(df=lags_data,lag_col=lags_data$new_lag5,lag=5)
+output_lag7<-plotlag(df=lags_data,lag_col=lags_data$new_lag7,lag=7)
+output_lag14<-plotlag(df=lags_data,lag_col=lags_data$new_lag14,lag=14)
+
+
+print(output_lag5)
+print(output_lag7)
+print(output_lag14)
+
+
+
+set.seed(999)
+g<-us_china %>% 
+   mutate(new = confirmed - lag(confirmed, n=1,default = first(confirmed))) %>% 
+   filter(new > 0)
+
+new_log_b5<- 
+   ggplot(g,aes(x=date,y=log(new,base=5)))+
+   geom_jitter(aes(col = country_region),alpha=0.3,size=2)+
+   geom_smooth(aes(group = country_region,col=country_region),se=F,method = "lm")+
+   scale_color_manual(values = sample(colors(distinct = T),2))+
    theme_minimal()+
    theme(legend.position = "top",
          panel.grid.minor.x = element_blank(),
          panel.grid.major.y = element_blank(),
-         panel.grid.minor.y = element_blank())
+         panel.grid.minor.y = element_blank(),
+         legend.title = element_blank(),
+         axis.title.x = element_blank(),
+         plot.margin = margin(0.5,1,0.5,1,"cm"),
+         line = element_line(linetype = "dashed"),
+         )
+   
+print(new_log_b5)
+
+
+## find growth metric
+speed <- 
+g %>% mutate(speed_rate = (total_confirmed / lag(total_confirmed,n=15,default = first(total_confirmed))) %>% round(2))
+speed %>% group_by(country_region) %>% summarise(mean_speed = mean(speed_rate,na.rm = T))
+
 set.seed(999)
-lag5_log<- 
-   ggplot(g,aes(x=date,y=log10(new_lag5)))+
+ggplot(speed,aes(x=date,y=speed_rate))+
    geom_point(aes(col = country_region),alpha=0.3,size=2)+
    geom_smooth(aes(group = country_region,col=country_region),se=F)+
    scale_color_manual(values = sample(colors(distinct = T),2))+
@@ -125,33 +198,36 @@ lag5_log<-
    theme(legend.position = "top",
          panel.grid.minor.x = element_blank(),
          panel.grid.major.y = element_blank(),
-         panel.grid.minor.y = element_blank())
+         panel.grid.minor.y = element_blank(),
+         legend.title = element_blank(),
+         axis.title.x = element_blank(),
+         plot.margin = margin(0.5,1,0.5,1,"cm"))
+
+## speed mean all ##
+speed_rank14 <- 
+summary2 %>%
+   filter(confirmed!=0&country_region %in% n30$country_region) %>%
+   mutate(new = confirmed - lag(confirmed,n=1,default = first(confirmed))) %>%
+   filter(new>0) %>% 
+   arrange(country_region,date) %>%
+   filter(country_region %in% n14$country_region) %>% 
+   mutate(speed_rate = (new / lag(new,n=14)) %>% round(2)) %>%
+   group_by(country_region) %>% summarise(mean_speed = mean(speed_rate,na.rm = T) %>% round(1)) %>%
+   mutate(rank_handle = as.numeric(factor(rank(mean_speed)))) %>% 
+   ungroup() %>%
+   arrange(-rank_handle)
    
-lag5_nonlog
-lag5_log
+n30 <-    
+   summary2 %>%
+      filter(confirmed!=0) %>%
+      group_by(country_region) %>% 
+      summarise(n = n()) %>% 
+      filter(n >=30)
 
-
-ggplotly(g2) %>% hide_legend()
-
-us_china_lag3 <- 
-   us_china %>% 
-   group_by(country_region,date) %>% 
-   summarise(total_confirmed=sum(confirmed)) %>%
-   mutate(new = total_confirmed - lag(total_confirmed,n=1,default = first(total_confirmed))) %>%
-   group_by(country_region,date) %>% 
-   mutate(new_lag3 = new - lag(new,n=3,default = first(new))) %>% 
-   arrange(country_region,date)
-   
- 
-   ggplot(us_china_lag3,aes(x=date,y=new))+
-   geom_point(aes(col = country_region))+
-   geom_smooth(aes(group = country_region,col=country_region))+
-   theme(legend.position = "top")
-
-g <-
-   us %>%
-   group_by(country_region,date) %>% summarise(total_confirmed=sum(confirmed)) %>% arrange(date) %>% 
-   ggplot(aes(x = date, y = total_confirmed))+geom_line()
-
-ggplotly(g)
-
+n14 <- 
+summary2 %>%
+   filter(confirmed!=0&country_region %in% n30$country_region) %>%
+   mutate(new = confirmed - lag(confirmed,n=1,default = first(confirmed))) %>%
+   filter(new>0) %>% 
+   count(country_region) %>% 
+   filter(n>=15) #n+1
