@@ -23,7 +23,7 @@ library(extrafont) # for more fonts
 ## 5. copy dataset (covid19_jhu_csse) from bigquery-public-data to your owedn project (you cannot directly connect directly to publid data project from r)
 ## 6. select your target project name and name the datasert name then done
 setwd("C:/git_r_project/covid19_analysis")
-project_id = "covid19-analysis-272811"
+project_id = "covid19-analysis" # your project id
 
 ## summary data
 bq.get_summary_data = "
