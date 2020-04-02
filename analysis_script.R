@@ -10,6 +10,7 @@ library(ggmap)
 library(lubridate)
 library(RColorBrewer)
 library(ggrepel)
+# optional
 library(extrafont) # for more fonts
    font_import(paths = "C:/Windows/Fonts")
    loadfonts(device="win")
@@ -48,7 +49,7 @@ summary_data = query_exec(bq.get_summary_data,
 
 max(summary_data$date)
 summary_data <-summary_data %>% filter(date < as.Date("2020-04-01"))
-
+View(summary_data)
 ##### end importing data #####
 
 summary2 <- 
@@ -76,8 +77,29 @@ summary2<-summary2 %>% filter(country_region != "Others") # exclude cruises
 summary2 <- 
 summary2 %>% 
    group_by(country_region,date) %>% 
-   summarise(confirmed = sum(confirmed,na.rm = T))
+   summarise(confirmed = max(confirmed,na.rm = T))
 
+total<-
+summary2 %>%
+   group_by(country_region) %>% 
+   arrange(date) %>% 
+   slice(n()) %>%
+   arrange(-confirmed) %>% 
+   ungroup()
+
+countries_handle <- c("Taiwan","Singapore","South Korea","Japan")
+
+total[total$country_region%in%countries_handle,c(1,3)]
+
+ggplot(total[1:50,],aes(x=reorder(country_region,+confirmed),y= confirmed))+
+   geom_bar(stat="identity",fill="#ffdfe7",width=0.7)+
+   coord_flip()+
+   theme_minimal()+
+   theme(plot.margin = margin(0.5,1,0.5,1,"cm"),
+         axis.title.y = element_blank(),
+         panel.grid.major.y = element_blank(),
+         axis.title.x = element_text(face="bold",family="Consolas"))+
+   labs(x="cases confirmed")
 
 
 ##### plot china and us #####
@@ -137,7 +159,7 @@ daily_us_china<-
    ggplot(g,aes(x=date,y=new))+
    geom_jitter(aes(col = country_region),alpha=0.3,size=2)+
    geom_smooth(aes(group = country_region,col=country_region),se=F)+
-   geom_label(aes(x=as.Date("2020-02-20"),y=13000,label="collect method changed?"),fill ="pink")+
+   geom_label(aes(x=as.Date("2020-02-17"),y=15000,label="collect method changed?"),fill ="pink")+
    scale_color_manual(values = sample(colors(distinct = T),2))+
    theme_minimal()+
    theme(legend.position = "top",
@@ -155,24 +177,31 @@ daily_us_china<-
 print(daily_us_china)
 
 ###### daily new cases countries of interest #####
-countries <- c("Thailand","Taiwan","China","US","Singapore","Hong Kong","South Korea","Italy","France","Spain")
+countries <- c("Thailand","Taiwan","China","US","Singapore","Hong Kong","South Korea","Italy","France","Spain","Japan")
 g2<-summary2 %>%
    filter(country_region%in%countries)
 
-color_vec <- c("#ff6666","#69f4ab","#b5b8ea","#cfbda3","#f9e843","#c39797","#8a2be2","#ffdfe7","#4ca3dd","#333333")
+color_vec <- c("#ff6666","#69f4ab","#b5b8ea","#cfbda3","#f9e843","#c39797","#8a2be2","#77ab59","#4ca3dd","#333333","#3816D4")
 daily_selected<-
    g2 %>% 
    mutate(log5 = log(confirmed,base=5)) %>% 
    ggplot(.,aes(x=date,y=log5))+
    geom_jitter(aes(col = country_region),alpha=0.3,size=1)+
    geom_smooth(aes(group = country_region,col=country_region),se=F)+
-   annotate("text",x=as.Date("2020-04-03"),y=7.5,label="China",col ="#ff6666",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-03"),y=7.2,label="China",col ="#ff6666",family="Consolas",fontface="bold",size=3)+
    annotate("text",x=as.Date("2020-04-03"),y=6.5,label="France",col ="#69f4ab",family="Consolas",fontface="bold",size=3)+
-   annotate("text",x=as.Date("2020-04-03"),y=7,label="Spain",col ="#8a2be2",family="Consolas",fontface="bold",size=3)+
-   annotate("text",x=as.Date("2020-04-02"),y=8.3,label="US",col ="#333333",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-03"),y=7,label="Spain",col ="#77ab59",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-02"),y=8.3,label="US",col ="#3816D4",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-02"),y=3.8,label="Taiwan",col ="#4ca3dd",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-02"),y=4.3,label="Singapore",col ="#c39797",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-02"),y=5,label="Thailand",col ="#333333",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-02"),y=5.7,label="South Korea",col ="#8a2be2",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-02"),y=7.4,label="Italy",col ="#cfbda3",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-03-12"),y=3,label="Hong Kong",col ="#b5b8ea",family="Consolas",fontface="bold",size=3)+
+   annotate("text",x=as.Date("2020-04-01"),y=4.7,label="Japan",col ="#f9e843",family="Consolas",fontface="bold",size=3)+
    scale_color_manual(values = color_vec)+
    theme_minimal()+
-   theme(legend.position = "top",
+   theme(legend.position = "none",
          axis.title.y = element_blank(),
          panel.grid.minor.x = element_blank(),
          panel.grid.major.y = element_blank(),
@@ -185,51 +214,30 @@ daily_selected<-
    labs(subtitle = "daily confirmed cases (log5)")
 
 print(daily_selected)
+
 ## find growth metric
-speed <- 
-summary2 %>%
-   filter(confirmed>0) %>% 
-   mutate(speed_rate = (confirmed / lag(confirmed,n=14,default = first(confirmed))) %>% round(2))
-
-speed %>% group_by(country_region) %>% summarise(mean_speed = mean(speed_rate,na.rm = T))
-
-set.seed(999)
-ggplot(speed,aes(x=date,y=speed_rate))+
-   geom_point(aes(col = country_region),alpha=0.3,size=2)+
-   geom_smooth(aes(group = country_region,col=country_region),se=F)+
-   scale_color_manual(values = sample(colors(distinct = T),2))+
-   theme_minimal()+
-   theme(legend.position = "top",
-         panel.grid.minor.x = element_blank(),
-         panel.grid.major.y = element_blank(),
-         panel.grid.minor.y = element_blank(),
-         legend.title = element_blank(),
-         axis.title.x = element_blank(),
-         plot.margin = margin(0.5,1,0.5,1,"cm"),
-         title = element_text(face="bold",family = "Consolas"))
-
 ## speed mean all ##
 speed_rank14 <- 
 summary2 %>%
    filter(confirmed>0&country_region %in% n14$country_region) %>%
    mutate(speed_rate = (confirmed / lag(confirmed,n=14)) %>% round(2)) %>%
    group_by(country_region) %>% 
-   summarise(mean_speed = sum(speed_rate,na.rm = T)) %>%
+   summarise(mean_speed = mean(speed_rate,na.rm = T)) %>%
    mutate(mean_order = as.numeric(factor(rank(mean_speed))))%>% 
    ungroup() %>%
    arrange(-mean_order)
 
-## starting from where at least 50 cases found
+## starting from where at least 50 cases found and has 14-day window to look back
 n14 <- 
    summary2 %>%
    filter(confirmed>=50) %>%
    mutate(speed_rate = (confirmed / lag(confirmed,n=14)) %>% round(2)) %>% 
    count(country_region) %>%
-   filter(n>=15)
+   filter(n>=15) #n+1
 
-#speed_rank14$country_region[speed_rank14$country_region=="Taiwan*"] <- "Taiwan"
 
 set.seed(999)
+speed_rank14_plot<-
 speed_rank14 %>%
    mutate(country_region = reorder(country_region,-mean_order)) %>% 
    ggplot(.,aes(x=country_region,y=mean_order,label = paste0(country_region,": ",round(mean_speed/100,2)),col = country_region)) +
@@ -250,9 +258,10 @@ speed_rank14 %>%
          title = element_text(face="bold",family = "Consolas"))+
    labs(subtitle = "14-day average speed (total cases) from low (left) to high (right)")
 
-
+print(speed_rank14_plot)
 
 suspect_report = c("China","Russia","Iran","Indonesia","Saudi Arabia","Eypt")
 # source https://www.bloomberg.com/news/articles/2020-04-01/china-concealed-extent-of-virus-outbreak-u-s-intelligence-says
 # https://www.bloomberg.com/news/articles/2020-03-24/hyatt-to-furlough-u-s-corporate-employees-with-hotels-shuttered
+
 
